@@ -1,22 +1,31 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
+import "."
 
 // A small audio visualizer for the Omarchy bar.
 //
 // cava runs headless with raw ASCII output: one line per frame, one value per
-// bar (0..100), separated by semicolons. Each line is mapped onto a row of
-// rounded bars painted in the theme's bar foreground (or accent) color, so the
-// widget follows theme switches without any extra wiring.
+// bar, separated by semicolons. The values arrive already scaled to whole
+// pixels of bar height and are drawn as rounded bars in the theme's bar
+// foreground (or accent) color, so the widget follows theme switches.
+//
+// The work is kept to what can be seen:
+// - cava processes live in CavaHub and are shared by every copy of the widget
+//   with the same config, on every monitor;
+// - a channel only runs cava while something plays into the watched output;
+// - identical frames are dropped before they reach QML;
+// - a widget lets go of its channel while a fullscreen window covers the bar
+//   or while the compositor stops drawing the bar (lock screen, screensaver).
 BarWidget {
   id: root
   moduleName: "syzyf97.cava"
 
   readonly property int barCount: clampInt(setting("bars", 10), 4, 32)
-  readonly property int framerate: clampInt(setting("framerate", 30), 10, 60)
+  readonly property int framerate: clampInt(setting("framerate", 20), 10, 60)
   readonly property bool useAccent: String(setting("color", "foreground")).toLowerCase() === "accent"
   readonly property bool hideWhenSilent: isOn(setting("hideWhenSilent", "Off"))
 
@@ -29,11 +38,12 @@ BarWidget {
   readonly property bool autoSensitivity: isOn(setting("autoSensitivity", "On"))
 
   // Audio source. The key is audioSource because the bar reserves "source"
-  // (with "type" and "exec") for custom user modules. "output" follows the default output (what is playing),
-  // "input" follows the default microphone, anything else is a PipeWire node
-  // name. cava records a sink through its monitor, so a bare sink name gets
-  // ".monitor" appended. Names are limited to characters PipeWire uses, which
-  // also keeps the value from breaking out of its line in the cava config.
+  // (with "type" and "exec") for custom user modules. "output" follows the
+  // default output (what is playing), "input" follows the default microphone,
+  // anything else is a PipeWire node name. cava records a sink through its
+  // monitor, so a bare sink name gets ".monitor" appended. Names are limited to
+  // characters PipeWire uses, which also keeps the value from breaking out of
+  // its line in the cava config.
   readonly property string sourceSetting: String(setting("audioSource", "output")).trim()
   readonly property var audioNodes: Pipewire.nodes ? Pipewire.nodes.values : []
   readonly property string cavaSource: {
@@ -71,12 +81,9 @@ BarWidget {
   readonly property real reach: Math.round(barSize * 0.55)
   readonly property real minReach: Math.max(2, thickness - 1)
   readonly property real padding: Style.spaceReal(8)
-
-  property var levels: []
-  property int silentFrames: 0
-  readonly property bool silent: silentFrames >= framerate
-  property bool available: true
-  property bool restarting: false
+  // One cava step per pixel the bars can grow: finer values would move bars
+  // by fractions of a pixel and repaint for nothing.
+  readonly property int steps: Math.max(1, Math.round(reach - minReach))
 
   function clampInt(value, min, max) {
     var n = Math.round(Number(value))
@@ -88,8 +95,7 @@ BarWidget {
     return value === true || String(value).toLowerCase() === "on" || String(value) === "true"
   }
 
-  // Written to cava through process substitution, so no temp files are left
-  // behind. sleep_timer lets cava idle when the output is silent.
+  // sleep_timer lets cava idle on its own when a microphone is silent.
   readonly property string cavaConfig: [
     "[general]",
     "bars=" + barCount,
@@ -106,7 +112,7 @@ BarWidget {
     "method=raw",
     "raw_target=/dev/stdout",
     "data_format=ascii",
-    "ascii_max_range=100",
+    "ascii_max_range=" + steps,
     "bar_delimiter=59",
     "frame_delimiter=10",
     "channels=mono",
@@ -115,79 +121,125 @@ BarWidget {
     ""
   ].join("\n")
 
-  function parseFrame(line) {
+  // --- Visibility --------------------------------------------------------------
+
+  readonly property var barWindow: root.QsWindow.window
+  readonly property var hyprMonitor: barWindow && barWindow.screen ? Hyprland.monitorFor(barWindow.screen) : null
+  // Only a real fullscreen window (mode 2) hides the bar; a maximized one
+  // leaves it visible.
+  readonly property bool coveredByFullscreen: {
+    var workspace = hyprMonitor ? hyprMonitor.activeWorkspace : null
+    if (!workspace || !workspace.hasFullscreen) return false
+    var toplevels = workspace.toplevels ? workspace.toplevels.values : []
+    for (var i = 0; i < toplevels.length; i++) {
+      var ipc = toplevels[i] ? toplevels[i].lastIpcObject : null
+      if (ipc && ipc.fullscreen === 2) return true
+    }
+    return false
+  }
+
+  // Hyprland details of toplevels are only refreshed on request.
+  onHyprMonitorChanged: Hyprland.refreshToplevels()
+  Connections {
+    target: root.hyprMonitor ? root.hyprMonitor.activeWorkspace : null
+    function onHasFullscreenChanged() { Hyprland.refreshToplevels() }
+  }
+
+  // When the compositor stops drawing the bar (session lock, screensaver on
+  // top), the window stops presenting frames even though the bars keep
+  // changing. Count bar changes since the last presented frame; after about
+  // two seconds of changes nobody saw, let go of cava. Letting go resets the
+  // bars, which is itself a change waiting to be drawn, so the first frame the
+  // compositor presents again brings cava back.
+  property int unseenChanges: 0
+  property bool renderStalled: false
+
+  Connections {
+    target: root.Window.window
+    function onFrameSwapped() {
+      root.unseenChanges = 0
+      if (root.renderStalled) root.renderStalled = false
+    }
+  }
+
+  readonly property bool shouldListen: barWindow !== null && !coveredByFullscreen && !renderStalled
+
+  // --- Channel -------------------------------------------------------------------
+
+  property var channel: null
+  property var levels: []
+  property bool silent: true
+
+  function applyFrame(line) {
     var parts = line.split(";")
     var next = []
     var loud = false
     for (var i = 0; i < barCount; i++) {
-      var v = Number(parts[i]) / 100
+      var v = Number(parts[i]) / steps
       if (!isFinite(v)) v = 0
       v = Math.max(0, Math.min(1, v))
       if (v > 0) loud = true
       next.push(v)
     }
     levels = next
-    silentFrames = loud ? 0 : Math.min(silentFrames + 1, framerate)
-  }
-
-  // A running Process can't be relaunched in place: stop it and start the new
-  // one from onExited, so the old exit can't be mistaken for a crash.
-  function restartCava() {
-    levels = []
-    silentFrames = framerate
-    restartTimer.stop()
-    if (cava.running) {
-      restarting = true
-      cava.running = false
-    } else {
-      startTimer.restart()
+    if (loud) {
+      silenceTimer.stop()
+      silent = false
+    } else if (!silent && !silenceTimer.running) {
+      silenceTimer.restart()
     }
+    if (visible && ++unseenChanges > framerate * 2) renderStalled = true
   }
 
-  onCavaConfigChanged: restartCava()
+  function resetBars() {
+    levels = []
+    silenceTimer.stop()
+    silent = true
+  }
 
-  visible: available && !(hideWhenSilent && silent)
+  // Settings arrive right after the widget is created and several can change
+  // at once, so channel changes are debounced instead of following every step.
+  function syncChannel() {
+    var wanted = shouldListen ? cavaConfig : ""
+    if (channel && channel.config === wanted) return
+    if (channel) {
+      CavaHub.release(channel)
+      channel = null
+      resetBars()
+    }
+    if (wanted !== "") channel = CavaHub.acquire(cavaConfig, cavaSource)
+  }
+
+  onCavaConfigChanged: syncTimer.restart()
+  onShouldListenChanged: {
+    console.debug("syzyf97.cava: widget on " + (barWindow && barWindow.screen ? barWindow.screen.name : "?")
+      + (shouldListen ? " listening" : " paused (fullscreen " + coveredByFullscreen + ", render stalled " + renderStalled + ")"))
+    syncTimer.restart()
+  }
+  Component.onCompleted: syncTimer.restart()
+  Component.onDestruction: if (channel) CavaHub.release(channel)
+
+  Timer {
+    id: syncTimer
+    interval: 100
+    onTriggered: root.syncChannel()
+  }
+
+  Timer {
+    id: silenceTimer
+    interval: 1000
+    onTriggered: root.silent = true
+  }
+
+  Connections {
+    target: root.channel
+    function onFrame(line) { root.applyFrame(line) }
+    function onStopped() { root.resetBars() }
+  }
+
+  visible: (!channel || channel.available) && !(hideWhenSilent && silent)
   implicitWidth: vertical ? barSize : content.width + padding * 2
   implicitHeight: vertical ? content.height + padding * 2 : barSize
-
-  Process {
-    id: cava
-    command: ["bash", "-c", "command -v cava >/dev/null || exit 127; exec cava -p <(printf '%s' \"$0\")", root.cavaConfig]
-    stdout: SplitParser {
-      onRead: function(line) { root.parseFrame(line) }
-    }
-
-    onExited: function(exitCode) {
-      if (exitCode === 127) {
-        root.available = false
-        console.warn("syzyf97.cava: cava is not installed")
-        return
-      }
-      if (root.restarting) {
-        root.restarting = false
-        startTimer.restart()
-        return
-      }
-      // cava can drop out when PipeWire restarts; come back shortly after.
-      root.silentFrames = root.framerate
-      restartTimer.restart()
-    }
-  }
-
-  // Settings are injected right after the widget is created, so the first
-  // start waits a moment instead of launching cava with the defaults.
-  Timer {
-    id: startTimer
-    interval: 100
-    running: true
-    onTriggered: if (!cava.running) cava.running = true
-  }
-
-  Timer {
-    id: restartTimer
-    interval: 3000
-    onTriggered: if (!cava.running) cava.running = true
-  }
 
   Grid {
     id: content

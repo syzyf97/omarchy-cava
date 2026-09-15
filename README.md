@@ -10,7 +10,19 @@ The bars use the bar foreground color of the current theme (or its accent), so t
 - Omarchy 4 shell (`omarchy-shell`)
 - `cava` built with PipeWire input (`sudo pacman -S cava`)
 
-The widget runs one `cava` process in raw output mode per bar instance (one per monitor). cava reads the default PipeWire output monitor, so the visualizer shows whatever is playing. No files are written and nothing runs as root.
+cava runs in raw output mode and reads the chosen PipeWire output or microphone. No files are written and nothing runs as root.
+
+## Resource use
+
+The widget does as little work as it can:
+
+- **cava only runs while something plays.** For output sources the widget watches PipeWire and starts cava when an application stream is actively playing into the output, and stops it a few seconds after playback ends or pauses. Nothing runs while the system is quiet. Microphone sources keep cava running, relying on cava's own sleep while silent.
+- **One cava for all copies.** Every widget copy on every monitor with the same settings shares one cava process.
+- **No repaints for unchanged frames.** cava reports bar heights in whole pixels, and frames identical to the previous one are dropped before they reach the bar.
+- **20 frames per second by default**, which looks smooth at bar size and costs about a third less than 30.
+- **Paused while hidden.** A widget stops listening while a fullscreen window covers its monitor (maximized windows do not count), and while the compositor stops drawing the bar.
+
+Measured on a Ryzen laptop with 20 bars, one monitor, while audio plays: cava about 0.6 %, the shell about 2.2 % of one core at 20 fps (3.2 % at 30 fps). While nothing plays: nothing.
 
 ## Install
 
@@ -38,7 +50,7 @@ Settings go inline on the widget entry in `~/.config/omarchy/shell.json`:
   "id": "syzyf97.cava",
   "audioSource": "output",
   "bars": 10,
-  "framerate": 30,
+  "framerate": 20,
   "lowFreq": 50,
   "highFreq": 10000,
   "sensitivity": 100,
@@ -52,7 +64,7 @@ Settings go inline on the widget entry in `~/.config/omarchy/shell.json`:
 |------------------|----------------|-------------------------------------------------|
 | `audioSource`    | `"output"`     | `"output"` (whatever is playing), `"input"` (default microphone), or a PipeWire device name |
 | `bars`           | `10`           | Number of bars (4–32)                           |
-| `framerate`      | `30`           | Frames per second (10–60)                       |
+| `framerate`      | `20`           | Frames per second (10–60)                       |
 | `lowFreq`        | `50`           | Lowest frequency shown, in Hz (20–19900)        |
 | `highFreq`       | `10000`        | Highest frequency shown, in Hz (120–20000); kept at least 100 Hz above `lowFreq` |
 | `sensitivity`    | `100`          | Bar height in percent (10–5000). With auto sensitivity off, quiet music usually needs 500–2000 |
