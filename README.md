@@ -34,17 +34,39 @@ omarchy bar move syzyf97.cava --section center
 Settings go inline on the widget entry in `~/.config/omarchy/shell.json`:
 
 ```json
-{ "id": "syzyf97.cava", "bars": 10, "framerate": 30, "color": "foreground", "hideWhenSilent": "Off" }
+{
+  "id": "syzyf97.cava",
+  "bars": 10,
+  "framerate": 30,
+  "lowFreq": 50,
+  "highFreq": 10000,
+  "sensitivity": 100,
+  "autoSensitivity": "On",
+  "color": "foreground",
+  "hideWhenSilent": "Off"
+}
 ```
 
 | Key              | Default        | Meaning                                         |
 |------------------|----------------|-------------------------------------------------|
 | `bars`           | `10`           | Number of bars (4–32)                           |
 | `framerate`      | `30`           | Frames per second (10–60)                       |
+| `lowFreq`        | `50`           | Lowest frequency shown, in Hz (20–19900)        |
+| `highFreq`       | `10000`        | Highest frequency shown, in Hz (120–20000); kept at least 100 Hz above `lowFreq` |
+| `sensitivity`    | `100`          | Bar height in percent (10–5000). With auto sensitivity off, quiet music usually needs 500–2000 |
+| `autoSensitivity`| `"On"`         | `"On"` lets cava adapt to the volume; `sensitivity` is then only the starting value |
 | `color`          | `"foreground"` | `"foreground"` or `"accent"` from the theme     |
 | `hideWhenSilent` | `"Off"`        | `"On"` hides the widget while nothing is playing |
 
-The widget works on vertical (left/right) bars too.
+Or from the command line (numbers need `--json`):
+
+```bash
+omarchy bar set syzyf97.cava lowFreq 40 --json
+omarchy bar set syzyf97.cava sensitivity 800 --json
+omarchy bar set syzyf97.cava autoSensitivity Off
+```
+
+Changes apply immediately. The widget works on vertical (left/right) bars too.
 
 ## Remove
 

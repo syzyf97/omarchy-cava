@@ -19,6 +19,14 @@ BarWidget {
   readonly property bool useAccent: String(setting("color", "foreground")).toLowerCase() === "accent"
   readonly property bool hideWhenSilent: isOn(setting("hideWhenSilent", "Off"))
 
+  // Frequency range. cava refuses a config whose lower cutoff is not below the
+  // higher one, so keep at least 100 Hz between them instead of letting cava
+  // exit and restart in a loop.
+  readonly property int lowFreq: clampInt(setting("lowFreq", 50), 20, 19900)
+  readonly property int highFreq: Math.max(lowFreq + 100, clampInt(setting("highFreq", 10000), 120, 20000))
+  readonly property int sensitivity: clampInt(setting("sensitivity", 100), 10, 5000)
+  readonly property bool autoSensitivity: isOn(setting("autoSensitivity", "On"))
+
   readonly property color barColor: useAccent
     ? Color.accent
     : (bar ? bar.barForeground : Color.foreground)
@@ -54,6 +62,10 @@ BarWidget {
     "bars=" + barCount,
     "framerate=" + framerate,
     "sleep_timer=2",
+    "lower_cutoff_freq=" + lowFreq,
+    "higher_cutoff_freq=" + highFreq,
+    "sensitivity=" + sensitivity,
+    "autosens=" + (autoSensitivity ? 1 : 0),
     "[input]",
     "method=pipewire",
     "source=auto",
@@ -147,7 +159,8 @@ BarWidget {
   Grid {
     id: content
     anchors.centerIn: parent
-    rows: root.vertical ? root.barCount : 1
+    // Only columns is bound: the row count follows from it, so the Grid never
+    // sees a transient rows*columns smaller than the number of bars.
     columns: root.vertical ? 1 : root.barCount
     spacing: root.gap
     opacity: root.silent ? 0.45 : 1

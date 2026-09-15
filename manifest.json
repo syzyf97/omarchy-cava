@@ -2,11 +2,13 @@
   "schemaVersion": 1,
   "id": "syzyf97.cava",
   "name": "Cava",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "syzyf97",
   "license": "MIT",
   "description": "Audio visualizer in the bar, powered by cava and colored by the current theme",
-  "kinds": ["bar-widget"],
+  "kinds": [
+    "bar-widget"
+  ],
   "entryPoints": {
     "barWidget": "BarWidget.qml"
   },
@@ -20,13 +22,94 @@
       "bars": 10,
       "framerate": 30,
       "color": "foreground",
-      "hideWhenSilent": "Off"
+      "hideWhenSilent": "Off",
+      "lowFreq": 50,
+      "highFreq": 10000,
+      "sensitivity": 100,
+      "autoSensitivity": "On"
     },
     "schema": [
-      { "key": "bars", "type": "integer", "label": "Bars", "min": 4, "max": 32, "step": 1, "defaultValue": 10 },
-      { "key": "framerate", "type": "integer", "label": "Frame rate", "min": 10, "max": 60, "step": 5, "defaultValue": 30 },
-      { "key": "color", "type": "enum", "label": "Color", "options": ["foreground", "accent"], "defaultValue": "foreground", "description": "Theme color used for the bars." },
-      { "key": "hideWhenSilent", "type": "enum", "label": "Hide when silent", "options": ["Off", "On"], "defaultValue": "Off", "description": "Hide the widget while nothing is playing." }
+      {
+        "key": "bars",
+        "type": "integer",
+        "label": "Bars",
+        "min": 4,
+        "max": 32,
+        "step": 1,
+        "defaultValue": 10
+      },
+      {
+        "key": "framerate",
+        "type": "integer",
+        "label": "Frame rate",
+        "min": 10,
+        "max": 60,
+        "step": 5,
+        "defaultValue": 30
+      },
+      {
+        "key": "lowFreq",
+        "type": "integer",
+        "label": "Lowest frequency (Hz)",
+        "min": 20,
+        "max": 19900,
+        "step": 10,
+        "defaultValue": 50,
+        "description": "Bottom of the frequency range shown by the bars."
+      },
+      {
+        "key": "highFreq",
+        "type": "integer",
+        "label": "Highest frequency (Hz)",
+        "min": 120,
+        "max": 20000,
+        "step": 100,
+        "defaultValue": 10000,
+        "description": "Top of the frequency range shown by the bars."
+      },
+      {
+        "key": "sensitivity",
+        "type": "integer",
+        "label": "Sensitivity (%)",
+        "min": 10,
+        "max": 5000,
+        "step": 10,
+        "defaultValue": 100,
+        "description": "Bar height in percent. With auto sensitivity off, quiet music usually needs 500-2000. With auto sensitivity on, this is only the starting value."
+      },
+      {
+        "key": "autoSensitivity",
+        "type": "enum",
+        "label": "Auto sensitivity",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "On",
+        "description": "Let cava adjust sensitivity to the volume so bars neither clip nor stay flat."
+      },
+      {
+        "key": "color",
+        "type": "enum",
+        "label": "Color",
+        "options": [
+          "foreground",
+          "accent"
+        ],
+        "defaultValue": "foreground",
+        "description": "Theme color used for the bars."
+      },
+      {
+        "key": "hideWhenSilent",
+        "type": "enum",
+        "label": "Hide when silent",
+        "options": [
+          "Off",
+          "On"
+        ],
+        "defaultValue": "Off",
+        "description": "Hide the widget while nothing is playing."
+      }
     ]
   }
 }
