@@ -35,7 +35,7 @@
         "type": "string",
         "label": "Audio source",
         "defaultValue": "output",
-        "description": "\"output\" for what is playing, \"input\" for the default microphone, or a PipeWire device name (list them with omarchy-cava-settings --sources)."
+        "description": "What the bars listen to: \"output\" is whatever is playing on the default output, \"input\" is the default microphone, or a PipeWire device name to pin one device (list them with omarchy-cava-settings --sources)."
       },
       {
         "key": "bars",
@@ -44,7 +44,8 @@
         "min": 4,
         "max": 32,
         "step": 1,
-        "defaultValue": 10
+        "defaultValue": 10,
+        "description": "Number of bars."
       },
       {
         "key": "framerate",
@@ -53,7 +54,8 @@
         "min": 10,
         "max": 60,
         "step": 5,
-        "defaultValue": 30
+        "defaultValue": 30,
+        "description": "How many times per second the bars update. Higher is smoother and uses a little more CPU."
       },
       {
         "key": "lowFreq",
@@ -63,7 +65,7 @@
         "max": 19900,
         "step": 10,
         "defaultValue": 50,
-        "description": "Bottom of the frequency range shown by the bars."
+        "description": "Lowest frequency shown, in Hz."
       },
       {
         "key": "highFreq",
@@ -73,7 +75,7 @@
         "max": 20000,
         "step": 100,
         "defaultValue": 10000,
-        "description": "Top of the frequency range shown by the bars."
+        "description": "Highest frequency shown, in Hz. Always kept at least 100 Hz above lowFreq."
       },
       {
         "key": "sensitivity",
@@ -83,7 +85,7 @@
         "max": 5000,
         "step": 10,
         "defaultValue": 100,
-        "description": "Bar height in percent. With auto sensitivity off, quiet music usually needs 500-2000. With auto sensitivity on, this is only the starting value."
+        "description": "Bar height in percent. With autoSensitivity Off, quiet music usually needs 500-2000. With autoSensitivity On, this is only the starting value."
       },
       {
         "key": "autoSensitivity",
@@ -94,7 +96,7 @@
           "Off"
         ],
         "defaultValue": "On",
-        "description": "Let cava adjust sensitivity to the volume so bars neither clip nor stay flat."
+        "description": "On lets cava adjust sensitivity to the volume, so bars neither clip nor stay flat."
       },
       {
         "key": "color",
@@ -105,7 +107,7 @@
           "accent"
         ],
         "defaultValue": "foreground",
-        "description": "Theme color used for the bars."
+        "description": "Theme color of the bars: foreground is the bar text color, accent is the theme accent."
       },
       {
         "key": "hideWhenSilent",
@@ -116,7 +118,7 @@
           "On"
         ],
         "defaultValue": "Off",
-        "description": "Hide the widget while nothing is playing."
+        "description": "On hides the widget while nothing is playing; Off keeps it visible and dimmed."
       }
     ]
   }

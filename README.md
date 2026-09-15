@@ -77,8 +77,10 @@ Changes apply immediately.
 
 ```bash
 ln -s ~/.config/omarchy/plugins/syzyf97.cava/bin/omarchy-cava-settings ~/.local/bin/
-omarchy-cava-settings          # table
-omarchy-cava-settings --json   # section, index and settings of each widget as JSON
+omarchy-cava-settings            # table
+omarchy-cava-settings --help     # every setting with its allowed values and examples
+omarchy-cava-settings --sources  # audio devices for audioSource
+omarchy-cava-settings --json     # section, index and settings of each widget as JSON
 ```
 
 ### Audio source

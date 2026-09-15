@@ -11,21 +11,80 @@ set -o pipefail
 PLUGIN_ID="syzyf97.cava"
 SHELL_JSON="${OMARCHY_SHELL_JSON:-$HOME/.config/omarchy/shell.json}"
 
-usage() {
-  cat <<USAGE
-Usage: omarchy-cava-settings [--json | --sources]
-
-Shows the effective settings of every $PLUGIN_ID widget on the bar: the value
-in use, where it comes from (default or shell.json), and whether it was clamped.
-
-  --json      print a JSON array with the section, index and settings of each widget
-  --sources   list the audio devices that can be used as the "audioSource" setting
-USAGE
-}
-
 fail() {
   echo "omarchy-cava-settings: $*" >&2
   exit 1
+}
+
+# The manifest sits one directory above this script. Resolve symlinks so the
+# script also works when linked into ~/.local/bin.
+script_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+manifest="$script_dir/../manifest.json"
+[[ -f $manifest ]] || manifest="$HOME/.config/omarchy/plugins/$PLUGIN_ID/manifest.json"
+
+# Every setting with its allowed values, read from the manifest schema so the
+# help never drifts from what the widget accepts.
+settings_help() {
+  if ! command -v jq >/dev/null || [[ ! -f $manifest ]]; then
+    echo "  (settings list unavailable: needs jq and the plugin manifest.json)"
+    return
+  fi
+  local width=${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}
+  (( width > 100 )) && width=100
+  (( width < 50 )) && width=50
+  # Padding is done in jq, which counts characters; printf would count the
+  # three bytes of the en dash and misalign the columns.
+  jq -r '
+    def pad($n): . + (" " * ([$n - length, 1] | max));
+    .barWidget.schema[]
+    | (if .type == "integer" then "\(.min)–\(.max)"
+       elif .type == "enum" then (.options | join(" | "))
+       else "text" end) as $values
+    | "\(.key | pad(17))\($values | pad(24))default: \(.defaultValue | tostring)\t\(.description // "")"
+  ' "$manifest" | while IFS=$'\t' read -r heading description; do
+    printf '  %s\n' "$heading"
+    fold -s -w $((width - 6)) <<<"$description" | sed 's/^/      /; s/ *$//'
+    echo
+  done
+}
+
+usage() {
+  cat <<USAGE
+Usage: omarchy-cava-settings [--json | --sources | --help]
+
+Shows the settings every $PLUGIN_ID widget on the bar is using: the value in
+use, where it comes from (default or shell.json), and whether it was changed to
+fit the allowed values.
+
+Options:
+  (none)        table of the current settings of each widget
+  --json        JSON array with the section, index and settings of each widget
+  --sources     audio devices that can be used as audioSource
+  -h, --help    this help
+
+Settings:
+USAGE
+  settings_help
+  cat <<USAGE
+Changing settings:
+  omarchy bar set $PLUGIN_ID <setting> <value>            text and choice values
+  omarchy bar set $PLUGIN_ID <setting> <number> --json    numbers
+
+  Changes apply to the bar immediately. Numbers outside the range are clamped
+  to the nearest limit. Settings can also be edited by hand in the widget entry
+  of ~/.config/omarchy/shell.json.
+
+  With several visualizers on the bar, pick one by its position, as shown in
+  the table: --from-section <left|center|right> --from-index <n>
+
+Examples:
+  omarchy bar set $PLUGIN_ID audioSource input
+  omarchy bar set $PLUGIN_ID bars 16 --json
+  omarchy bar set $PLUGIN_ID color accent
+  omarchy bar set $PLUGIN_ID lowFreq 20 --json
+  omarchy bar set $PLUGIN_ID highFreq 250 --json
+  omarchy bar set $PLUGIN_ID sensitivity 800 --json --from-section right --from-index 0
+USAGE
 }
 
 json=false
@@ -35,10 +94,16 @@ case "${1:-}" in
   --json) json=true ;;
   --sources) sources=true ;;
   -h | --help) usage; exit 0 ;;
-  *) usage >&2; exit 1 ;;
+  *)
+    echo "omarchy-cava-settings: unknown option '$1'" >&2
+    echo "Run 'omarchy-cava-settings --help' for options and all settings." >&2
+    exit 1
+    ;;
 esac
+(( $# <= 1 )) || fail "expected one option at most (see --help)"
 
 command -v jq >/dev/null || fail "jq is required"
+[[ -f $manifest ]] || fail "manifest.json not found"
 
 # Audio sinks and sources known to PipeWire, as [{name, description, kind}].
 devices='[]'
@@ -68,13 +133,6 @@ if [[ $sources == true ]]; then
   echo "Example: omarchy bar set $PLUGIN_ID audioSource input"
   exit 0
 fi
-
-# The manifest sits one directory above this script. Resolve symlinks so the
-# script also works when linked into ~/.local/bin.
-script_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
-manifest="$script_dir/../manifest.json"
-[[ -f $manifest ]] || manifest="$HOME/.config/omarchy/plugins/$PLUGIN_ID/manifest.json"
-[[ -f $manifest ]] || fail "manifest.json not found"
 
 if [[ -f $SHELL_JSON ]]; then
   shell_json="$SHELL_JSON"
@@ -183,6 +241,8 @@ if (( count == 0 )); then
   echo "Defaults it would start with:"
   echo
   print_table "$(jq '.defaults' <<<"$report")"
+  echo
+  echo "All settings and their allowed values: omarchy-cava-settings --help"
   exit 0
 fi
 
@@ -199,3 +259,6 @@ for (( i = 0; i < count; i++ )); do
   echo
   print_table "$instance"
 done
+
+echo
+echo "All settings and their allowed values: omarchy-cava-settings --help"
