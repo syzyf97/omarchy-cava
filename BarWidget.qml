@@ -85,13 +85,18 @@ BarWidget {
     silentFrames = loud ? 0 : Math.min(silentFrames + 1, framerate)
   }
 
+  // A running Process can't be relaunched in place: stop it and start the new
+  // one from onExited, so the old exit can't be mistaken for a crash.
   function restartCava() {
     levels = []
     silentFrames = framerate
-    restarting = true
-    cava.running = false
-    restartTimer.interval = 50
-    restartTimer.restart()
+    restartTimer.stop()
+    if (cava.running) {
+      restarting = true
+      cava.running = false
+    } else {
+      startTimer.restart()
+    }
   }
 
   onCavaConfigChanged: restartCava()
@@ -103,8 +108,6 @@ BarWidget {
   Process {
     id: cava
     command: ["bash", "-c", "command -v cava >/dev/null || exit 127; exec cava -p <(printf '%s' \"$0\")", root.cavaConfig]
-    running: true
-
     stdout: SplitParser {
       onRead: function(line) { root.parseFrame(line) }
     }
@@ -115,20 +118,30 @@ BarWidget {
         console.warn("syzyf97.cava: cava is not installed")
         return
       }
-      if (root.restarting) return
+      if (root.restarting) {
+        root.restarting = false
+        startTimer.restart()
+        return
+      }
       // cava can drop out when PipeWire restarts; come back shortly after.
       root.silentFrames = root.framerate
-      restartTimer.interval = 3000
       restartTimer.restart()
     }
   }
 
+  // Settings are injected right after the widget is created, so the first
+  // start waits a moment instead of launching cava with the defaults.
+  Timer {
+    id: startTimer
+    interval: 100
+    running: true
+    onTriggered: if (!cava.running) cava.running = true
+  }
+
   Timer {
     id: restartTimer
-    onTriggered: {
-      root.restarting = false
-      if (!cava.running) cava.running = true
-    }
+    interval: 3000
+    onTriggered: if (!cava.running) cava.running = true
   }
 
   Grid {
