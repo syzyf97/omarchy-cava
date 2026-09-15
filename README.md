@@ -66,7 +66,19 @@ omarchy bar set syzyf97.cava sensitivity 800 --json
 omarchy bar set syzyf97.cava autoSensitivity Off
 ```
 
-Changes apply immediately. The widget works on vertical (left/right) bars too.
+Changes apply immediately.
+
+### Checking the current settings
+
+`bin/omarchy-cava-settings` prints the settings the widget is using: defaults merged with your `shell.json` entry and clamped to the same limits as the widget. Values that were clamped or normalized are marked, and unknown keys are listed.
+
+```bash
+ln -s ~/.config/omarchy/plugins/syzyf97.cava/bin/omarchy-cava-settings ~/.local/bin/
+omarchy-cava-settings          # table
+omarchy-cava-settings --json   # effective settings as JSON
+```
+
+The widget works on vertical (left/right) bars too.
 
 ## Remove
 

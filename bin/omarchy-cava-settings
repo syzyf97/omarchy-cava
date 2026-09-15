@@ -1,0 +1,127 @@
+#!/bin/bash
+
+# Show the settings the syzyf97.cava bar widget is using right now.
+#
+# Merges the manifest defaults with the widget's entry in shell.json and
+# applies the same limits as BarWidget.qml, so the output shows what the
+# widget actually runs with, not only what was typed into shell.json.
+
+set -o pipefail
+
+PLUGIN_ID="syzyf97.cava"
+SHELL_JSON="${OMARCHY_SHELL_JSON:-$HOME/.config/omarchy/shell.json}"
+
+usage() {
+  cat <<USAGE
+Usage: omarchy-cava-settings [--json]
+
+Shows the effective settings of the $PLUGIN_ID bar widget: the value in use,
+where it comes from (default or shell.json), and whether it was clamped.
+
+  --json   print the effective settings as a JSON object
+USAGE
+}
+
+fail() {
+  echo "omarchy-cava-settings: $*" >&2
+  exit 1
+}
+
+json=false
+case "${1:-}" in
+  "") ;;
+  --json) json=true ;;
+  -h | --help) usage; exit 0 ;;
+  *) usage >&2; exit 1 ;;
+esac
+
+command -v jq >/dev/null || fail "jq is required"
+
+# The manifest sits one directory above this script. Resolve symlinks so the
+# script also works when linked into ~/.local/bin.
+script_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+manifest="$script_dir/../manifest.json"
+[[ -f $manifest ]] || manifest="$HOME/.config/omarchy/plugins/$PLUGIN_ID/manifest.json"
+[[ -f $manifest ]] || fail "manifest.json not found"
+
+if [[ -f $SHELL_JSON ]]; then
+  shell_json="$SHELL_JSON"
+else
+  shell_json=/dev/null
+fi
+
+report=$(jq -n \
+  --arg id "$PLUGIN_ID" \
+  --slurpfile manifest "$manifest" \
+  --slurpfile shell <(cat "$shell_json" 2>/dev/null || echo '{}') '
+  # Mirror clampInt() and isOn() from BarWidget.qml.
+  def num:
+    if type == "number" then .
+    elif type == "boolean" then (if . then 1 else 0 end)
+    elif type == "string" then (if test("^\\s*$") then 0 else (tonumber? // null) end)
+    else null end;
+  def clamp($min; $max):
+    (num) as $n
+    | if $n == null then $min
+      else ($n | round) as $r | if $r < $min then $min elif $r > $max then $max else $r end
+      end;
+  def on: . == true or ((. | tostring | ascii_downcase) as $v | $v == "on" or $v == "true");
+
+  ($manifest[0].barWidget.defaults // {}) as $defaults
+  | ([($shell[0].bar.layout // {})[]?[]? | select(.id == $id)]) as $entries
+  | ($entries[0] // {}) as $entry
+  | ($entries | length > 0) as $placed
+  | ([($shell[0].bar.layout // {}) | to_entries[] | select(any(.value[]?; .id == $id)) | .key][0]) as $section
+  | def raw($key): if $entry | has($key) then $entry[$key] else $defaults[$key] end;
+    (raw("lowFreq") | clamp(20; 19900)) as $low
+  | {
+      bars: (raw("bars") | clamp(4; 32)),
+      framerate: (raw("framerate") | clamp(10; 60)),
+      lowFreq: $low,
+      highFreq: ([$low + 100, (raw("highFreq") | clamp(120; 20000))] | max),
+      sensitivity: (raw("sensitivity") | clamp(10; 5000)),
+      autoSensitivity: (if raw("autoSensitivity") | on then "On" else "Off" end),
+      color: (if (raw("color") | tostring | ascii_downcase) == "accent" then "accent" else "foreground" end),
+      hideWhenSilent: (if raw("hideWhenSilent") | on then "On" else "Off" end)
+    } as $effective
+  | {
+      placed: $placed,
+      section: $section,
+      effective: $effective,
+      rows: [
+        $effective | to_entries[] | .key as $k | {
+          key: $k,
+          value: .value,
+          source: (if $entry | has($k) then "shell.json" else "default" end),
+          given: (if $entry | has($k) then $entry[$k] else null end)
+        }
+        | .note = (if .source == "shell.json" and .given != .value then "set to \(.given | tojson)" else "" end)
+      ],
+      unknown: [$entry | keys[] | . as $k | select($k != "id" and ($effective | has($k) | not))]
+    }
+')
+[[ -n $report ]] || fail "could not read settings"
+
+if [[ $json == true ]]; then
+  jq '.effective' <<<"$report"
+  exit 0
+fi
+
+if [[ $(jq -r '.placed' <<<"$report") == true ]]; then
+  echo "$PLUGIN_ID — in the $(jq -r '.section' <<<"$report") section of the bar"
+else
+  echo "$PLUGIN_ID — not in the bar (enable it with: omarchy plugin enable $PLUGIN_ID)"
+  echo "Defaults it would start with:"
+fi
+echo
+
+{
+  printf 'SETTING\tVALUE\tSOURCE\tNOTE\n'
+  jq -r '.rows[] | [.key, (.value | tostring), .source, .note] | @tsv' <<<"$report"
+} | column -t -s $'\t'
+
+unknown=$(jq -r '.unknown | join(", ")' <<<"$report")
+if [[ -n $unknown ]]; then
+  echo
+  echo "Ignored keys in shell.json: $unknown"
+fi
