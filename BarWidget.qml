@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
 
@@ -26,6 +27,38 @@ BarWidget {
   readonly property int highFreq: Math.max(lowFreq + 100, clampInt(setting("highFreq", 10000), 120, 20000))
   readonly property int sensitivity: clampInt(setting("sensitivity", 100), 10, 5000)
   readonly property bool autoSensitivity: isOn(setting("autoSensitivity", "On"))
+
+  // Audio source. The key is audioSource because the bar reserves "source"
+  // (with "type" and "exec") for custom user modules. "output" follows the default output (what is playing),
+  // "input" follows the default microphone, anything else is a PipeWire node
+  // name. cava records a sink through its monitor, so a bare sink name gets
+  // ".monitor" appended. Names are limited to characters PipeWire uses, which
+  // also keeps the value from breaking out of its line in the cava config.
+  readonly property string sourceSetting: String(setting("audioSource", "output")).trim()
+  readonly property var audioNodes: Pipewire.nodes ? Pipewire.nodes.values : []
+  readonly property string cavaSource: {
+    var value = sourceSetting
+    var lower = value.toLowerCase()
+    if (lower === "" || lower === "output" || lower === "auto") return "auto"
+    if (lower === "input" || lower === "auto_input") return "auto_input"
+    if (!/^[A-Za-z0-9._:@+-]+$/.test(value)) return "auto"
+    if (/\.monitor$/.test(value)) return value
+    for (var i = 0; i < audioNodes.length; i++) {
+      var node = audioNodes[i]
+      if (node && node.isSink && !node.isStream && String(node.name) === value) return value + ".monitor"
+    }
+    return value
+  }
+  readonly property string sourceLabel: {
+    if (cavaSource === "auto") return "Output"
+    if (cavaSource === "auto_input") return "Microphone"
+    var name = cavaSource.replace(/\.monitor$/, "")
+    for (var i = 0; i < audioNodes.length; i++) {
+      var node = audioNodes[i]
+      if (node && !node.isStream && String(node.name) === name) return node.description || node.nickname || name
+    }
+    return name
+  }
 
   readonly property color barColor: useAccent
     ? Color.accent
@@ -68,7 +101,7 @@ BarWidget {
     "autosens=" + (autoSensitivity ? 1 : 0),
     "[input]",
     "method=pipewire",
-    "source=auto",
+    "source=" + cavaSource,
     "[output]",
     "method=raw",
     "raw_target=/dev/stdout",
@@ -198,7 +231,7 @@ BarWidget {
     onClicked: if (root.bar) root.bar.run("omarchy-launch-or-focus-tui cava")
     onContainsMouseChanged: {
       if (!root.bar) return
-      if (containsMouse) root.bar.showTooltip(root, "Cava")
+      if (containsMouse) root.bar.showTooltip(root, "Cava · " + root.sourceLabel)
       else root.bar.hideTooltip(root)
     }
   }

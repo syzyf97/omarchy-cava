@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "syzyf97.cava",
   "name": "Cava",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "syzyf97",
   "license": "MIT",
   "description": "Audio visualizer in the bar, powered by cava and colored by the current theme",
@@ -19,6 +19,7 @@
     "allowMultiple": true,
     "defaultSection": "right",
     "defaults": {
+      "audioSource": "output",
       "bars": 10,
       "framerate": 30,
       "color": "foreground",
@@ -29,6 +30,13 @@
       "autoSensitivity": "On"
     },
     "schema": [
+      {
+        "key": "audioSource",
+        "type": "string",
+        "label": "Audio source",
+        "defaultValue": "output",
+        "description": "\"output\" for what is playing, \"input\" for the default microphone, or a PipeWire device name (list them with omarchy-cava-settings --sources)."
+      },
       {
         "key": "bars",
         "type": "integer",

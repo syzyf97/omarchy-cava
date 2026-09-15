@@ -36,6 +36,7 @@ Settings go inline on the widget entry in `~/.config/omarchy/shell.json`:
 ```json
 {
   "id": "syzyf97.cava",
+  "audioSource": "output",
   "bars": 10,
   "framerate": 30,
   "lowFreq": 50,
@@ -49,6 +50,7 @@ Settings go inline on the widget entry in `~/.config/omarchy/shell.json`:
 
 | Key              | Default        | Meaning                                         |
 |------------------|----------------|-------------------------------------------------|
+| `audioSource`    | `"output"`     | `"output"` (whatever is playing), `"input"` (default microphone), or a PipeWire device name |
 | `bars`           | `10`           | Number of bars (4–32)                           |
 | `framerate`      | `30`           | Frames per second (10–60)                       |
 | `lowFreq`        | `50`           | Lowest frequency shown, in Hz (20–19900)        |
@@ -61,6 +63,7 @@ Settings go inline on the widget entry in `~/.config/omarchy/shell.json`:
 Or from the command line (numbers need `--json`):
 
 ```bash
+omarchy bar set syzyf97.cava audioSource input
 omarchy bar set syzyf97.cava lowFreq 40 --json
 omarchy bar set syzyf97.cava sensitivity 800 --json
 omarchy bar set syzyf97.cava autoSensitivity Off
@@ -78,6 +81,19 @@ omarchy-cava-settings          # table
 omarchy-cava-settings --json   # section, index and settings of each widget as JSON
 ```
 
+### Audio source
+
+`"output"` and `"input"` follow the system defaults, so switching speakers or microphones in the audio panel moves the visualizer with them. To pin a specific device, use its PipeWire name:
+
+```bash
+omarchy-cava-settings --sources
+omarchy bar set syzyf97.cava audioSource alsa_input.pci-0000_08_00.6.analog-stereo
+```
+
+An output device name is recorded through its monitor automatically. If the named device does not exist, cava falls back to the default microphone; `omarchy-cava-settings` flags that. While the visualizer listens to a microphone, the device is in use, so microphone indicators show it as active.
+
+The key is `audioSource`, not `source`: the bar reserves `source`, `type` and `exec` for custom user modules.
+
 ### More than one visualizer
 
 The widget can sit on the bar more than once, each copy with its own settings (for example a bass-only one next to the full range). `omarchy plugin enable` and `omarchy bar put` never add a second copy, so add the entry to `bar.layout` in `~/.config/omarchy/shell.json` yourself:
@@ -85,7 +101,7 @@ The widget can sit on the bar more than once, each copy with its own settings (f
 ```json
 "right": [
   { "id": "syzyf97.cava", "bars": 6, "lowFreq": 20, "highFreq": 250 },
-  { "id": "syzyf97.cava", "bars": 16, "color": "accent" }
+  { "id": "syzyf97.cava", "bars": 16, "color": "accent", "audioSource": "input" }
 ]
 ```
 

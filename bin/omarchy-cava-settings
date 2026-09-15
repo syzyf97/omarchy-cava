@@ -13,12 +13,13 @@ SHELL_JSON="${OMARCHY_SHELL_JSON:-$HOME/.config/omarchy/shell.json}"
 
 usage() {
   cat <<USAGE
-Usage: omarchy-cava-settings [--json]
+Usage: omarchy-cava-settings [--json | --sources]
 
 Shows the effective settings of every $PLUGIN_ID widget on the bar: the value
 in use, where it comes from (default or shell.json), and whether it was clamped.
 
-  --json   print a JSON array with the section, index and settings of each widget
+  --json      print a JSON array with the section, index and settings of each widget
+  --sources   list the audio devices that can be used as the "audioSource" setting
 USAGE
 }
 
@@ -28,14 +29,45 @@ fail() {
 }
 
 json=false
+sources=false
 case "${1:-}" in
   "") ;;
   --json) json=true ;;
+  --sources) sources=true ;;
   -h | --help) usage; exit 0 ;;
   *) usage >&2; exit 1 ;;
 esac
 
 command -v jq >/dev/null || fail "jq is required"
+
+# Audio sinks and sources known to PipeWire, as [{name, description, kind}].
+devices='[]'
+if command -v pw-dump >/dev/null; then
+  devices=$(pw-dump 2>/dev/null | jq -c '
+    (map(select(.type == "PipeWire:Interface:Metadata" and .props."metadata.name" == "default"))
+      | [.[].metadata[]? | {(.key): (.value.name? // "")}] | add // {}) as $defaults
+    | [ .[] | select(.type == "PipeWire:Interface:Node") | .info.props
+        | select(."media.class" == "Audio/Sink" or ."media.class" == "Audio/Source")
+        | { name: ."node.name",
+            description: (."node.description" // ."node.nick" // ""),
+            kind: (if ."media.class" == "Audio/Sink" then "output" else "input" end) }
+        | .default = (.name == $defaults["default.audio.\(if .kind == "output" then "sink" else "source" end)"]) ]
+  ' || echo '[]')
+fi
+
+if [[ $sources == true ]]; then
+  echo "Use one of these as the audioSource setting:"
+  echo
+  {
+    printf 'VALUE\tDEVICE\n'
+    printf 'output\tdefault output — whatever is playing\n'
+    printf 'input\tdefault microphone\n'
+    jq -r '.[] | [.name, "\(.kind): \(.description)\(if .default then " (default)" else "" end)"] | @tsv' <<<"$devices"
+  } | column -t -s $'\t'
+  echo
+  echo "Example: omarchy bar set $PLUGIN_ID audioSource input"
+  exit 0
+fi
 
 # The manifest sits one directory above this script. Resolve symlinks so the
 # script also works when linked into ~/.local/bin.
@@ -53,6 +85,7 @@ fi
 report=$(jq -n \
   --arg id "$PLUGIN_ID" \
   --slurpfile manifest "$manifest" \
+  --argjson devices "$devices" \
   --slurpfile shell <(cat "$shell_json" 2>/dev/null || echo '{}') '
   # Mirror clampInt() and isOn() from BarWidget.qml.
   def num:
@@ -65,13 +98,30 @@ report=$(jq -n \
     | if $n == null then $min
       else ($n | round) as $r | if $r < $min then $min elif $r > $max then $max else $r end
       end;
+  # Mirror cavaSource in BarWidget.qml. Devices are only checked when pw-dump
+  # could list them, so an empty list never marks a name as unknown.
+  def source_of:
+    (tostring | gsub("^\\s+|\\s+$"; "")) as $v
+    | ($v | ascii_downcase) as $l
+    | if $l == "" or $l == "output" or $l == "auto" then {value: "output"}
+      elif $l == "input" or $l == "auto_input" then {value: "input"}
+      elif ($v | test("^[A-Za-z0-9._:@+-]+$") | not) then {value: "output", warning: "invalid name, using output"}
+      else ($v | sub("\\.monitor$"; "")) as $name
+        | ([$devices[] | select(.name == $name)][0]) as $device
+        | if $device == null then
+            {value: $v, warning: (if ($devices | length) > 0 then "no such device, cava falls back to the default microphone" else null end)}
+          else {value: $v, device: "\($device.kind): \($device.description)"}
+          end
+      end;
   def on: . == true or ((. | tostring | ascii_downcase) as $v | $v == "on" or $v == "true");
 
   ($manifest[0].barWidget.defaults // {}) as $defaults
   | def describe($entry):
       def raw($key): if $entry | has($key) then $entry[$key] else $defaults[$key] end;
       (raw("lowFreq") | clamp(20; 19900)) as $low
+      | (raw("audioSource") | source_of) as $source
       | {
+          audioSource: $source.value,
           bars: (raw("bars") | clamp(4; 32)),
           framerate: (raw("framerate") | clamp(10; 60)),
           lowFreq: $low,
@@ -90,7 +140,11 @@ report=$(jq -n \
               source: (if $entry | has($k) then "shell.json" else "default" end),
               given: (if $entry | has($k) then $entry[$k] else null end)
             }
-            | .note = (if .source == "shell.json" and .given != .value then "set to \(.given | tojson)" else "" end)
+            | .note = (
+                if $k == "audioSource" and $source.warning then $source.warning
+                elif $k == "audioSource" and $source.device then $source.device
+                elif .source == "shell.json" and .given != .value then "set to \(.given | tojson)"
+                else "" end)
           ],
           unknown: [$entry | keys[] | . as $k | select($k != "id" and ($effective | has($k) | not))]
         };
@@ -114,7 +168,7 @@ fi
 
 print_table() {
   {
-    printf 'SETTING\tVALUE\tSOURCE\tNOTE\n'
+    printf 'SETTING\tVALUE\tFROM\tNOTE\n'
     jq -r '.rows[] | [.key, (.value | tostring), .source, .note] | @tsv' <<<"$1"
   } | column -t -s $'\t'
 
