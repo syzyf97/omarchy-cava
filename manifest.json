@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "syzyf97.cava",
+  "name": "Cava",
+  "version": "0.1.0",
+  "author": "syzyf97",
+  "license": "MIT",
+  "description": "Audio visualizer in the bar, powered by cava and colored by the current theme",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Cava",
+    "description": "Audio visualizer powered by cava",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "bars": 10,
+      "framerate": 30,
+      "color": "foreground",
+      "hideWhenSilent": "Off"
+    },
+    "schema": [
+      { "key": "bars", "type": "integer", "label": "Bars", "min": 4, "max": 32, "step": 1, "defaultValue": 10 },
+      { "key": "framerate", "type": "integer", "label": "Frame rate", "min": 10, "max": 60, "step": 5, "defaultValue": 30 },
+      { "key": "color", "type": "enum", "label": "Color", "options": ["foreground", "accent"], "defaultValue": "foreground", "description": "Theme color used for the bars." },
+      { "key": "hideWhenSilent", "type": "enum", "label": "Hide when silent", "options": ["Off", "On"], "defaultValue": "Off", "description": "Hide the widget while nothing is playing." }
+    ]
+  }
+}
