@@ -75,8 +75,27 @@ Changes apply immediately.
 ```bash
 ln -s ~/.config/omarchy/plugins/syzyf97.cava/bin/omarchy-cava-settings ~/.local/bin/
 omarchy-cava-settings          # table
-omarchy-cava-settings --json   # effective settings as JSON
+omarchy-cava-settings --json   # section, index and settings of each widget as JSON
 ```
+
+### More than one visualizer
+
+The widget can sit on the bar more than once, each copy with its own settings (for example a bass-only one next to the full range). `omarchy plugin enable` and `omarchy bar put` never add a second copy, so add the entry to `bar.layout` in `~/.config/omarchy/shell.json` yourself:
+
+```json
+"right": [
+  { "id": "syzyf97.cava", "bars": 6, "lowFreq": 20, "highFreq": 250 },
+  { "id": "syzyf97.cava", "bars": 16, "color": "accent" }
+]
+```
+
+With several copies, pick one by its section and index (counted from 0 among all widgets in that section) when changing a setting. `omarchy-cava-settings` prints the right flags for each copy:
+
+```bash
+omarchy bar set syzyf97.cava bars 8 --json --from-section right --from-index 0
+```
+
+Every copy runs its own cava process.
 
 The widget works on vertical (left/right) bars too.
 

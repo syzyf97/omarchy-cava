@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "syzyf97.cava",
   "name": "Cava",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "syzyf97",
   "license": "MIT",
   "description": "Audio visualizer in the bar, powered by cava and colored by the current theme",
@@ -16,7 +16,7 @@
     "displayName": "Cava",
     "description": "Audio visualizer powered by cava",
     "category": "Audio",
-    "allowMultiple": false,
+    "allowMultiple": true,
     "defaultSection": "right",
     "defaults": {
       "bars": 10,

@@ -15,10 +15,10 @@ usage() {
   cat <<USAGE
 Usage: omarchy-cava-settings [--json]
 
-Shows the effective settings of the $PLUGIN_ID bar widget: the value in use,
-where it comes from (default or shell.json), and whether it was clamped.
+Shows the effective settings of every $PLUGIN_ID widget on the bar: the value
+in use, where it comes from (default or shell.json), and whether it was clamped.
 
-  --json   print the effective settings as a JSON object
+  --json   print a JSON array with the section, index and settings of each widget
 USAGE
 }
 
@@ -68,60 +68,80 @@ report=$(jq -n \
   def on: . == true or ((. | tostring | ascii_downcase) as $v | $v == "on" or $v == "true");
 
   ($manifest[0].barWidget.defaults // {}) as $defaults
-  | ([($shell[0].bar.layout // {})[]?[]? | select(.id == $id)]) as $entries
-  | ($entries[0] // {}) as $entry
-  | ($entries | length > 0) as $placed
-  | ([($shell[0].bar.layout // {}) | to_entries[] | select(any(.value[]?; .id == $id)) | .key][0]) as $section
-  | def raw($key): if $entry | has($key) then $entry[$key] else $defaults[$key] end;
-    (raw("lowFreq") | clamp(20; 19900)) as $low
-  | {
-      bars: (raw("bars") | clamp(4; 32)),
-      framerate: (raw("framerate") | clamp(10; 60)),
-      lowFreq: $low,
-      highFreq: ([$low + 100, (raw("highFreq") | clamp(120; 20000))] | max),
-      sensitivity: (raw("sensitivity") | clamp(10; 5000)),
-      autoSensitivity: (if raw("autoSensitivity") | on then "On" else "Off" end),
-      color: (if (raw("color") | tostring | ascii_downcase) == "accent" then "accent" else "foreground" end),
-      hideWhenSilent: (if raw("hideWhenSilent") | on then "On" else "Off" end)
-    } as $effective
-  | {
-      placed: $placed,
-      section: $section,
-      effective: $effective,
-      rows: [
-        $effective | to_entries[] | .key as $k | {
-          key: $k,
-          value: .value,
-          source: (if $entry | has($k) then "shell.json" else "default" end),
-          given: (if $entry | has($k) then $entry[$k] else null end)
-        }
-        | .note = (if .source == "shell.json" and .given != .value then "set to \(.given | tojson)" else "" end)
-      ],
-      unknown: [$entry | keys[] | . as $k | select($k != "id" and ($effective | has($k) | not))]
-    }
+  | def describe($entry):
+      def raw($key): if $entry | has($key) then $entry[$key] else $defaults[$key] end;
+      (raw("lowFreq") | clamp(20; 19900)) as $low
+      | {
+          bars: (raw("bars") | clamp(4; 32)),
+          framerate: (raw("framerate") | clamp(10; 60)),
+          lowFreq: $low,
+          highFreq: ([$low + 100, (raw("highFreq") | clamp(120; 20000))] | max),
+          sensitivity: (raw("sensitivity") | clamp(10; 5000)),
+          autoSensitivity: (if raw("autoSensitivity") | on then "On" else "Off" end),
+          color: (if (raw("color") | tostring | ascii_downcase) == "accent" then "accent" else "foreground" end),
+          hideWhenSilent: (if raw("hideWhenSilent") | on then "On" else "Off" end)
+        } as $effective
+      | {
+          settings: $effective,
+          rows: [
+            $effective | to_entries[] | .key as $k | {
+              key: $k,
+              value: .value,
+              source: (if $entry | has($k) then "shell.json" else "default" end),
+              given: (if $entry | has($k) then $entry[$k] else null end)
+            }
+            | .note = (if .source == "shell.json" and .given != .value then "set to \(.given | tojson)" else "" end)
+          ],
+          unknown: [$entry | keys[] | . as $k | select($k != "id" and ($effective | has($k) | not))]
+        };
+
+  # Every copy of the widget on the bar, with the section and index that
+  # `omarchy bar set ... --from-section --from-index` expects.
+  [ ($shell[0].bar.layout // {}) | to_entries[]
+    | .key as $section
+    | (.value // []) | to_entries[]
+    | select(.value.id? == $id)
+    | { section: $section, index: .key } + describe(.value)
+  ] as $instances
+  | { instances: $instances, defaults: describe({}) }
 ')
 [[ -n $report ]] || fail "could not read settings"
 
 if [[ $json == true ]]; then
-  jq '.effective' <<<"$report"
+  jq '[.instances[] | {section, index, settings}]' <<<"$report"
   exit 0
 fi
 
-if [[ $(jq -r '.placed' <<<"$report") == true ]]; then
-  echo "$PLUGIN_ID — in the $(jq -r '.section' <<<"$report") section of the bar"
-else
+print_table() {
+  {
+    printf 'SETTING\tVALUE\tSOURCE\tNOTE\n'
+    jq -r '.rows[] | [.key, (.value | tostring), .source, .note] | @tsv' <<<"$1"
+  } | column -t -s $'\t'
+
+  local unknown
+  unknown=$(jq -r '.unknown | join(", ")' <<<"$1")
+  [[ -z $unknown ]] || printf '\nIgnored keys in shell.json: %s\n' "$unknown"
+}
+
+count=$(jq '.instances | length' <<<"$report")
+if (( count == 0 )); then
   echo "$PLUGIN_ID — not in the bar (enable it with: omarchy plugin enable $PLUGIN_ID)"
   echo "Defaults it would start with:"
-fi
-echo
-
-{
-  printf 'SETTING\tVALUE\tSOURCE\tNOTE\n'
-  jq -r '.rows[] | [.key, (.value | tostring), .source, .note] | @tsv' <<<"$report"
-} | column -t -s $'\t'
-
-unknown=$(jq -r '.unknown | join(", ")' <<<"$report")
-if [[ -n $unknown ]]; then
   echo
-  echo "Ignored keys in shell.json: $unknown"
+  print_table "$(jq '.defaults' <<<"$report")"
+  exit 0
 fi
+
+for (( i = 0; i < count; i++ )); do
+  instance=$(jq ".instances[$i]" <<<"$report")
+  section=$(jq -r '.section' <<<"$instance")
+  index=$(jq -r '.index' <<<"$instance")
+  (( i == 0 )) || echo
+  if (( count == 1 )); then
+    echo "$PLUGIN_ID — in the $section section of the bar"
+  else
+    echo "$PLUGIN_ID #$((i + 1)) — $section section, index $index (change with: omarchy bar set $PLUGIN_ID <key> <value> --from-section $section --from-index $index)"
+  fi
+  echo
+  print_table "$instance"
+done
